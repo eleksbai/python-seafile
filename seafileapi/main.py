@@ -4,6 +4,7 @@ import requests
 
 from seafileapi.exceptions import ClientHttpError
 from seafileapi.utils import urljoin
+from requests_toolbelt import MultipartEncoder, MultipartEncoderMonitor
 
 
 def parse_headers(token):
@@ -22,6 +23,22 @@ def parse_response(response):
             return data
         except Exception:
             pass
+
+
+def b2h(size):
+    if size < 1024:
+        return "{:.2f}B".format(size)
+    elif size < 1024 * 1024:
+        return "{:.2f}KB".format(size / 1024)
+    elif size < 1024 * 1024 * 1024:
+        return "{:.2f}MB".format(size / 1024 / 1024)
+    else:
+        return "{:.2f}GB".format(size / 1024 / 1024 / 1024)
+
+
+def cb_progress(monitor):
+    progress = (monitor.bytes_read / monitor.len) * 100
+    print("\rProgress：{:.2f}%({}/{})".format(progress, b2h(monitor.bytes_read), b2h(monitor.len)), end=" ")
 
 
 class Repo(object):
@@ -164,19 +181,27 @@ class Repo(object):
         response = requests.delete(url, params=params, headers=self.headers, timeout=self.timeout)
         return parse_response(response)
 
-    def upload_file(self, parent_dir, file_path):
+    def upload_file(self, parent_dir, file_path, print_progress=False):
         upload_link_url = self._repo_upload_link_url()
         params = {'path': parent_dir} if '/via-repo-token' in upload_link_url else {'p': parent_dir}
         response = requests.get(upload_link_url, params=params, headers=self.headers, timeout=self.timeout)
         upload_link = response.text.strip('"')
         upload_link = "%s?ret-json=1" % upload_link
-        files = {'file': open(file_path, 'rb')}
-        data = {'parent_dir': parent_dir}
-        response = requests.post(upload_link, files=files, data=data)
-        if response.status_code == 200:
-            return response.json()[0]
-        else:
-            raise Exception('upload file error')
+        with open(file_path, 'rb') as f:
+            e = MultipartEncoder(
+                fields={'parent_dir': parent_dir,  # 参数1
+                        'file': (file_path, f, 'application/octet-stream'),  # 文件1
+                        }
+            )
+            if print_progress:
+                m = MultipartEncoderMonitor(e, cb_progress)
+                response = requests.post(upload_link, data=m, headers={'Content-Type': m.content_type})
+            else:
+                response = requests.post(upload_link, data=e, headers={'Content-Type': e.content_type})
+            if response.status_code == 200:
+                return response.json()[0]
+            else:
+                raise Exception('upload file error')
 
     def download_file(self, file_path, save_path):
         url = self._repo_download_link_url()
