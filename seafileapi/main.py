@@ -27,7 +27,7 @@ def parse_response(response):
 
 def b2h(size):
     if size < 1024:
-        return "{:.2f}B".format(size)
+        return "{}B".format(size)
     elif size < 1024 * 1024:
         return "{:.2f}KB".format(size / 1024)
     elif size < 1024 * 1024 * 1024:
